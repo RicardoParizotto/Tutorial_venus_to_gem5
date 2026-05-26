@@ -1,113 +1,204 @@
-# Tutorial_venus_to_gem5
+# Tutorial: Portando Código Assembly do Venus para o gem5
 
-Do Venus para o Gem5
+## 📚 Índice
 
-Neste tutorial, vamos pegar um código elaborado no Venus e portá-lo no gem5. O código assembly elaborado no Venus não funciona diretamente no gem5 e exige as seguintes correções de sintaxe e estrutura:
+1. [Introdução](#introdução)
+2. [Pré-requisitos](#pré-requisitos)
+3. [Passos de Migração](#passos-de-migração)
+4. [Configuração do Ambiente](#configuração-do-ambiente)
+5. [Execução](#execução)
 
-Considere o seguinte código do repositório, que recebe um vetor de char, que é geralmente configurado pelo usuário na interface do Venus. Ao migrarmos para o gem5, a história é outra 🙂
+---
 
+## Introdução
 
-Passo 1: Arrumar a sintaxe: O Venus permite expressar instruções sem separação por vírgulas. Porém, como vamos usar as ferramentas do GCC, será necessário adicionar Vírgulas em Instruções. Insira vírgulas em todas as instruções do código.
+Este tutorial guia você no processo de portação de código assembly RISC-V desenvolvido no **Venus** para o simulador **gem5**.
 
-Exemplo:
-    addi a0 zero 1
-    mv a1 t4
-    addi a0, zero, 1
-    mv a1, t4
+> ⚠️ **Nota**: Código assembly desenvolvido no Venus não funciona diretamente no gem5. É necessário fazer correções de sintaxe e estrutura.
 
+---
 
+## Pré-requisitos
 
-Passo 2: Retorno de Função: Geralmente fazíamos programas que não tinham uma função “global”, ou que tinha, mas nem sempre retornava um valor. Para executar corretamente nosso código no gem5, temos que preservar e restaurar ra na main. Garanta que existe uma função main, e na função main, adicione as seguintes instruções no início:
+- Código assembly funcionando no Venus
+- gem5 instalado e compilado
+- Toolchain RISC-V: `riscv64-linux-gnu-gcc`
 
-No início da main
+---
+
+## Passos de Migração
+
+### Passo 1: Corrigir Sintaxe - Adicionar Vírgulas
+
+O Venus permite instruções sem separação por vírgulas. No gem5 (com ferramentas GCC), é necessário adicionar vírgulas entre operandos.
+
+**Antes (Venus):**
+```assembly
+addi a0 zero 1
+mv a1 t4
+```
+
+**Depois (gem5):**
+```assembly
+addi a0, zero, 1
+mv a1, t4
+```
+
+---
+
+### Passo 2: Configurar Preservação do Endereço de Retorno
+
+Geralmente programas no Venus não tinham uma função global ou não retornavam valores. No gem5, é necessário preservar o endereço de retorno.
+
+**No início da `main`:**
+```assembly
 addi sp, sp, -4
-sw ra, 0(sp) 
+sw ra, 0(sp)
+```
 
-
-Por fim antes de retornar, adicione no fim da main
-lw ra, 0(sp) 
+**No final da `main` (antes de retornar):**
+```assembly
+lw ra, 0(sp)
 addi sp, sp, 4
+```
 
+---
 
-Passo 3: Adicionar Retorno de Função: Na função main, use a instrução ret para retornar corretamente após a execução do código.
+### Passo 3: Adicionar Instrução de Retorno
 
-Passo 4: Eliminação de Endereços de Memória Estática, Em gem5, usar endereços de memória fixos (como 0x0FFFFFE8 do Venus) pode gerar um Segmentation Fault por pertencerem ao espaço protegido do sistema operacional emulado.
+Use a instrução `ret` para retornar corretamente após a execução do código.
 
+```assembly
+main:
+    # seu código aqui
+    ret
+```
 
-4.1Solução: Use a diretiva de assembler .data para definir uma seção de dados estruturada. O
-O montador se encarregará de posicionar as variáveis em uma região segura da memória durante a linkagem do binário.
+---
 
+### Passo 4: Eliminar Endereços de Memória Estática
+
+Em gem5, usar endereços de memória fixos (como `0x0FFFFFE8` do Venus) pode gerar **Segmentation Fault** por pertencerem a espaços protegidos.
+
+#### 4.1 Solução: Use a Diretiva `.data`
+
+Use a diretiva de assembler `.data` para definir uma seção de dados estruturada. O montador se encarregará de posicionar as variáveis em uma região segura da memória durante a linkagem.
+
+```assembly
 .data
- my_vector:  .word 10, 20, 30, 40, 50
+    my_vector: .word 10, 20, 30, 40, 50
+```
 
+#### 4.2 Carregar Endereço com `la` (Load Address)
 
+Na seção `.text`, use a instrução `la` para carregar o endereço da memória alocada.
 
-4.1 Na seção .text, use a instrução la (Load Address) para carregar o endereço da memória alocada (Ex: la s1, my_vector).
-
+```assembly
 .text
 .globl main
-. . .
 
 main:
-. . .
-la s1, my_vector 
+    la s1, my_vector
+    # seu código aqui
+```
 
+---
 
+### Passo 5: Substituir Chamadas de Sistema pela Libc
 
-Passo 5: Substituição das Chamadas de Sistema (Uso da Libc)
-Ao invés de programar diretamente via Assembly a chamada bruta ao kernel emulado do gem5,aproveite que a toolchain do GCC fornece suporte à biblioteca C. Substitua as syscalls proprietárias do Venus por chamadas simplificadas a malloc e printf.
+Ao invés de programar diretamente via Assembly as syscalls do kernel emulado do gem5, aproveite que a toolchain do GCC fornece suporte à biblioteca C.
 
-   # malloc(20)  5 ints de 4 bytes
-    li   a0, 20
-    call malloc
+#### 5.1 Exemplo: `malloc`
 
+Substitua chamadas de sistema proprietárias por funções da libc:
 
-De maneira similar, o mesmo pode/deve ser feito para mostrar o inteiro. No venus, temos uma chamada de sistema que permite fazer isso.
-No gem5, primeiro configure uma seção somente leitura para armazenar a string de formato para printf:
+```assembly
+# malloc(20) para 5 ints de 4 bytes
+li   a0, 20
+call malloc
+```
 
-.section .rodata 
-     fmt: .string "%d\n"
+#### 5.2 Exemplo: `printf`
 
+Configure uma seção somente leitura para armazenar a string de formato:
 
-E substituir no corpo da nossa função 
+```assembly
+.section .rodata
+    fmt: .string "%d\n"
+```
 
-Substituir:                         Por:
-    addi a0 zero 1
-    mv a1 t4
-    ecall
-    la   a0, fmt
-    mv   a1, t4
-    call printf
+Substitua syscalls por chamadas a `printf`:
 
+| Antes (Venus) | Depois (gem5) |
+|:---|:---|
+| `addi a0 zero 1` | `la a0, fmt` |
+| `mv a1 t4` | `mv a1, t4` |
+| `ecall` | `call printf` |
 
+#### 5.3 ⚠️ Aviso: Preservação de Registradores
 
-Ao fazer isso, porém, vamos criar um problema: as variaveis temporarias t0…tn não são preservadas internamente por printf e malloc. Isso vai exigir substituir elas. Por hora, vamos apenas substituí-las por variáveis do tipo S. 
+As funções `printf` e `malloc` **não preservam** registradores temporários (`t0`...`tn`). Substitua registradores temporários por registradores salvos:
 
+| Registrador Temporário | Registrador Salvo |
+|:---|:---|
+| `t0` | `s3` |
+| `t1` | `s4` |
+| `t3` | `s5` |
 
-Registrador Original (Temporário)
-t0
-t1
-t3
-Novo Registrador Substituto
+---
 
-(Salvo)
-s3
-s4
-s5
+## Configuração do Ambiente e Execução
 
+### Compilar o Código Assembly
 
+Use o compilador RISC-V GCC para compilar o arquivo assembly em um binário estático:
 
-
-
-Configurando o Ambiente e Rodando o Código RISC-V
-
-Para rodar um código em assembly do RISC-V no gem5, siga estes passos:
-
-Compilar o Código Assembly: Use o riscv64-linux-gnu-gcc para compilar o arquivo assembly (sum.s) em um binário RISC-V estático (sum.riscv). 
-Comando:
+```bash
 riscv64-linux-gnu-gcc -static solucao.s -o solucao.riscv
+```
 
-Simular no gem5: Execute o binário compilado usando o simulador gem5.opt, especificando o modelo de simulação e o caminho para o binário
-./gem5/build/RISCV/gem5.opt   models/<model_name>.py   --binary programs/solucao.riscv
+**Parâmetros:**
+- `-static`: Cria um binário estático (sem dependências de bibliotecas compartilhadas)
+- `solucao.s`: Arquivo assembly de entrada
+- `-o solucao.riscv`: Nome do binário de saída
 
+---
 
+### Simular no gem5
+
+Execute o binário compilado usando o simulador gem5:
+
+```bash
+./gem5/build/RISCV/gem5.opt models/<model_name>.py --binary programs/solucao.riscv
+```
+
+**Parâmetros:**
+- `gem5.opt`: Simulador gem5 compilado
+- `models/<model_name>.py`: Arquivo de configuração do modelo de simulação
+- `--binary`: Caminho para o binário RISC-V compilado
+
+---
+
+## 📝 Resumo Rápido
+
+| Etapa | Ação | Comando/Exemplo |
+|:---|:---|:---|
+| 1 | Corrigir sintaxe | Adicione vírgulas entre operandos |
+| 2 | Preservar retorno | Salve `ra` no início e restaure no fim |
+| 3 | Adicionar retorno | Use `ret` antes de terminar `main` |
+| 4 | Dados na memória | Use `.data` e `la` para endereços |
+| 5 | Syscalls | Substitua por funções da libc |
+| 6 | Compilar | `riscv64-linux-gnu-gcc -static solucao.s -o solucao.riscv` |
+| 7 | Simular | `./gem5/build/RISCV/gem5.opt models/<model>.py --binary programs/solucao.riscv` |
+
+---
+
+## 🔗 Recursos Adicionais
+
+- [gem5 Documentation](https://www.gem5.org/)
+- [RISC-V Specification](https://riscv.org/)
+- [Venus Simulator](https://github.com/kvakil/venus)
+
+---
+
+**Última atualização:** 2026-05-26
