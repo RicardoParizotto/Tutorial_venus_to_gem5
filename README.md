@@ -1,20 +1,10 @@
 # Tutorial: Portando Código Assembly do Venus para o gem5
 
-## 📚 Índice
-
-1. [Introdução](#introdução)
-2. [Pré-requisitos](#pré-requisitos)
-3. [Passos de Migração](#passos-de-migração)
-4. [Configuração do Ambiente](#configuração-do-ambiente)
-5. [Execução](#execução)
-
----
-
 ## Introdução
 
 Este tutorial guia você no processo de portação de código assembly RISC-V desenvolvido no **Venus** para o simulador **gem5**.
 
-> ⚠️ **Nota**: Código assembly desenvolvido no Venus não funciona diretamente no gem5. É necessário fazer correções de sintaxe e estrutura.
+ **Nota**: Código assembly desenvolvido no Venus não funciona diretamente no gem5. É necessário fazer correções de sintaxe e estrutura.
 
 ---
 
@@ -135,7 +125,7 @@ Substitua syscalls por chamadas a `printf`:
 | `mv a1 t4` | `mv a1, t4` |
 | `ecall` | `call printf` |
 
-#### 5.3 ⚠️ Aviso: Preservação de Registradores
+#### 5.3 Aviso: Preservação de Registradores
 
 As funções `printf` e `malloc` **não preservam** registradores temporários (`t0`...`tn`). Substitua registradores temporários por registradores salvos:
 
@@ -178,27 +168,3 @@ Execute o binário compilado usando o simulador gem5:
 - `--binary`: Caminho para o binário RISC-V compilado
 
 ---
-
-## 📝 Resumo Rápido
-
-| Etapa | Ação | Comando/Exemplo |
-|:---|:---|:---|
-| 1 | Corrigir sintaxe | Adicione vírgulas entre operandos |
-| 2 | Preservar retorno | Salve `ra` no início e restaure no fim |
-| 3 | Adicionar retorno | Use `ret` antes de terminar `main` |
-| 4 | Dados na memória | Use `.data` e `la` para endereços |
-| 5 | Syscalls | Substitua por funções da libc |
-| 6 | Compilar | `riscv64-linux-gnu-gcc -static solucao.s -o solucao.riscv` |
-| 7 | Simular | `./gem5/build/RISCV/gem5.opt models/<model>.py --binary programs/solucao.riscv` |
-
----
-
-## 🔗 Recursos Adicionais
-
-- [gem5 Documentation](https://www.gem5.org/)
-- [RISC-V Specification](https://riscv.org/)
-- [Venus Simulator](https://github.com/kvakil/venus)
-
----
-
-**Última atualização:** 2026-05-26
